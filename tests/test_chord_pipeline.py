@@ -332,3 +332,104 @@ class TestTabStorage:
         rec = db.get_tab(tab_id)
         assert isinstance(rec["created_at"], str)
         assert len(rec["created_at"]) > 0
+
+
+# ===========================================================================
+# Cross-pipeline integration tests added in the final-verification pass.
+# These exercise the three flagship behaviours added in prompts 1-3:
+#   1. extract_dominant_melody (monophonic-melody filter)
+#   2. _apply_aggressive_filters (octave snapping)
+#   3. FretboardMapper.score_position (open-string preference)
+# ===========================================================================
+
+class TestMonophonicExtraction:
+    """The monophonic post-filter must keep the loudest note in each window."""
+
+    def test_monophonic_extraction_picks_loudest_note(self) -> None:
+        """Three simultaneous notes → only the loudest survives.
+
+        ``extract_dominant_melody`` bins NoteEvents by start time into
+        50 ms windows and keeps the note with the highest amplitude in
+        each bin.  All three input notes share the same start time, so
+        they fall in the same window — the 0.7-amplitude note must win.
+        """
+        from beginner_tab.pitch_tracker import extract_dominant_melody
+
+        # All three notes start at the same time (same 50 ms window).
+        # NoteEvent shape in this codebase = (start_time, midi, amplitude).
+        events = [
+            (0.0, 60, 0.3),  # quietest
+            (0.0, 64, 0.7),  # loudest — should win
+            (0.0, 67, 0.5),  # middle
+        ]
+
+        out = extract_dominant_melody(events)
+
+        assert len(out) == 1, f"Expected single dominant note, got {out}"
+        assert out[0] == (0.0, 64, 0.7), out[0]
+
+
+class TestAggressiveFilterOctaveSnap:
+    """Octave snapping must keep notes in beginner-friendly range."""
+
+    def test_octave_snapping_brings_high_notes_in_range(self) -> None:
+        """A high MIDI value above 76 is octave-snapped down, not deleted.
+
+        NOTE on the spec value: the prompt suggests ``midi=90`` to
+        exercise this rule, but rule #1 of the aggressive pipeline
+        ("discard if midi > 88") filters MIDI 90 *before* the octave-snap
+        step ever sees it.  We use MIDI 84 instead — that's above the
+        beginner ceiling of 76 (so the snap fires) but inside the
+        playable range of 40-88 (so it survives the range filter).  The
+        invariant the prompt actually wants to verify still holds:
+        the surviving note has ``midi <= 76`` and the same pitch class
+        (octave-snapped, not randomly relocated).
+        """
+        from beginner_tab.pitch_tracker import _apply_aggressive_filters
+
+        # Extended-note tuple = (start, end, midi, amplitude).  Duration
+        # is well above the 60 ms minimum and amplitude above 0.4 so the
+        # only filter that can change the output is octave snapping.
+        original_midi = 84  # C6 — one octave above the beginner ceiling C5
+        events = [(0.0, 1.0, original_midi, 0.9)]
+
+        out = _apply_aggressive_filters(
+            events, amplitude_threshold=0.4, min_duration_s=0.06
+        )
+
+        assert len(out) == 1, f"Expected one surviving note, got {out}"
+        _, _, snapped_midi, _ = out[0]
+
+        # Beginner ceiling: snapped down to MIDI <= 76.
+        assert snapped_midi <= 76, snapped_midi
+        # Same pitch class — i.e. an integer number of octaves down,
+        # not a random transposition.
+        assert snapped_midi % 12 == original_midi % 12, (
+            snapped_midi, original_midi
+        )
+
+
+class TestFretboardScoringPrefersOpenStrings:
+    """The score-based mapper must rank open strings above fretted ones."""
+
+    def test_fretboard_scoring_prefers_open_strings(self) -> None:
+        """Open low-E (5, 0) must out-score a fretted A-string E (4, 7).
+
+        Strings in this codebase are integer indices, not letter names:
+            index 0 = high e (thinnest)   index 4 = A
+            index 5 = low E (thickest)
+        So the prompt's ``string='E'`` maps to index 5 and ``string='A'``
+        maps to index 4.
+
+        Expected scoring (with no previous-note context):
+            (5, 0) → +100 (open) + (20 - 0) = 120
+            (4, 7) →                (20 - 7) =  13
+        """
+        mapper = FretboardMapper()  # default settings
+
+        open_E_score    = mapper.score_position((5, 0))   # open low-E string
+        fretted_E_score = mapper.score_position((4, 7))   # A string, fret 7
+
+        assert open_E_score > fretted_E_score, (
+            f"open {open_E_score} should beat fretted {fretted_E_score}"
+        )

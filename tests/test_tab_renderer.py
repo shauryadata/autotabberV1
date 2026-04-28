@@ -62,10 +62,16 @@ class TestTabRendererStructure:
     SINGLE: list = [(0.0, 0, 0, 64)]
 
     def _tab_lines(self, tab_notes, **kwargs) -> list[str]:
-        """Return only lines that contain the tab string separator '|'."""
+        """Return only the 6 tab string rows (e|, B|, G|, D|, A|, E|).
+
+        Filtering by string-row prefix (rather than by ``"|" in line``)
+        is necessary because the renderer's stats header now legitimately
+        contains ``|`` separators between Tempo / Notes / Duration.
+        """
         r = TabRenderer(**kwargs)
         output = r.render(tab_notes)
-        return [ln for ln in output.split("\n") if "|" in ln]
+        string_prefixes = tuple(f"{name}|" for name in STRING_NAMES)
+        return [ln for ln in output.split("\n") if ln.startswith(string_prefixes)]
 
     def test_six_string_rows(self) -> None:
         lines = self._tab_lines(self.SINGLE)
@@ -172,12 +178,13 @@ class TestTabRendererColumnWidths:
         assert fret_str == "5"
         assert width >= 3
 
-    def test_two_digit_fret_wider_column(self) -> None:
+    def test_two_digit_fret_fixed_column(self) -> None:
+        """Per spec, every column is exactly 3 chars — '12' renders as '12-'."""
         r = TabRenderer()
         cols = r._build_mono_columns([(0.0, 0, 12, 76)])
         _, fret_str, width = cols[0]
         assert fret_str == "12"
-        assert width >= 4  # '-12-' needs 4 chars
+        assert width == 3  # "12-" — fixed 3-char column for alignment
 
     def test_zero_fret_width(self) -> None:
         r = TabRenderer()

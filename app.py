@@ -125,12 +125,73 @@ else:
             help="Minimum pYIN voiced-probability to keep a frame.",
         )
 
-# 2) Max Fret — slider
-st.sidebar.subheader("2. Max Fret")
-max_fret: int = st.sidebar.slider(
-    "Highest fret allowed", min_value=3, max_value=12, value=5, step=1,
-    help="Lower = easier for beginners; notes above this fret are skipped.",
+# Aggressive note-cleaning filters — apply to BOTH pitch trackers AFTER
+# raw detection.  These two sliders are the most useful tuning knobs once a
+# user understands what gets dropped: amplitude removes background noise /
+# bleed, min-duration removes pick-attack blips and detector artifacts.
+st.sidebar.subheader("Note Filtering")
+amplitude_threshold: float = st.sidebar.slider(
+    "Amplitude Threshold",
+    min_value=0.10, max_value=0.80, value=0.40, step=0.05,
+    help=(
+        "Drop any detected note quieter than this.  Higher = stricter "
+        "(removes background noise and instrument bleed).  Lower = keeps "
+        "more notes (including artifacts)."
+    ),
 )
+min_note_duration_ms: int = st.sidebar.slider(
+    "Min Note Duration (ms)",
+    min_value=30, max_value=200, value=60, step=10,
+    help=(
+        "Drop any detected note shorter than this.  60 ms is the shortest "
+        "intentionally-played guitar note; below that you are almost "
+        "always looking at pick-attack transients or detector artifacts."
+    ),
+)
+# Convert ms → seconds for the tracker constructors below.
+min_duration_s: float = min_note_duration_ms / 1000.0
+
+st.sidebar.divider()
+
+# Monophonic-melody filter — applies to BOTH pitch trackers.  When enabled,
+# any cluster of near-simultaneous detected notes (within a 50 ms window) is
+# collapsed to the single loudest note, producing a clean single-line melody
+# even on polyphonic recordings.  Recommended for beginner tabs.
+monophonic_mode: bool = st.sidebar.checkbox(
+    "Monophonic Melody Mode (recommended)",
+    value=True,
+    help=(
+        "Keep only the loudest note in each 50 ms window so the tab is a "
+        "clean single-line melody.  Turn off to render full chords from "
+        "Basic-pitch."
+    ),
+)
+
+st.sidebar.divider()
+
+# 2) Difficulty Mode — discrete select_slider mapping each difficulty tier
+# to a max-fret cap.  Replaces the previous free-form integer slider so
+# users pick a meaningful skill level instead of guessing a fret number.
+st.sidebar.subheader("2. Difficulty Mode")
+DIFFICULTY_MAX_FRETS: dict[str, int] = {
+    "Beginner (max fret 5)": 5,
+    "Intermediate (max fret 7)": 7,
+    "Advanced (max fret 12)": 12,
+}
+difficulty_label: str = st.sidebar.select_slider(
+    "Difficulty Mode",
+    options=list(DIFFICULTY_MAX_FRETS.keys()),
+    value="Beginner (max fret 5)",
+    help=(
+        "Highest fret the tab is allowed to use.  Beginner stays in the "
+        "first 5 frets (open-position chords / easy melodies); Intermediate "
+        "reaches fret 7 (covers most beginner songs); Advanced opens up the "
+        "full first 12 frets."
+    ),
+)
+# Resolve the chosen tier to the integer cap that the rest of the
+# pipeline (FretboardMapper, renderer, storage) already understands.
+max_fret: int = DIFFICULTY_MAX_FRETS[difficulty_label]
 
 # 3) Note Grid — selectbox
 st.sidebar.subheader("3. Note Grid")
@@ -147,7 +208,14 @@ one_string_mode: bool = st.sidebar.checkbox(
     help="Play everything on the high-e string.",
 )
 notes_per_line: int = st.sidebar.slider(
-    "Columns per tab line", min_value=8, max_value=24, value=16, step=4,
+    "Columns per tab line",
+    min_value=16, max_value=64, value=48, step=16,
+    help=(
+        "Tab columns per line.  Stay on multiples of 16 so each line "
+        "ends on a measure boundary (one measure = 16 sixteenth-note "
+        "columns).  48 = 3 measures per line, matching the standard "
+        "beginner-tab layout."
+    ),
 )
 
 # ── Main UI ───────────────────────────────────────────────────────────────────
@@ -247,6 +315,9 @@ else:
                             onset_threshold=onset_threshold,
                             frame_threshold=frame_threshold,
                             minimum_note_length_ms=min_note_ms,
+                            monophonic_mode=monophonic_mode,
+                            amplitude_threshold=amplitude_threshold,
+                            min_duration_s=min_duration_s,
                         )
                         raw_notes = tracker.track()
                         tempo = tracker.estimate_tempo()
@@ -260,6 +331,9 @@ else:
                             audio, sr,
                             min_confidence=min_confidence,
                             use_hpss=use_hpss,
+                            monophonic_mode=monophonic_mode,
+                            amplitude_threshold=amplitude_threshold,
+                            min_duration_s=min_duration_s,
                         )
                         raw_notes = tracker.track()
                         tempo = tracker.estimate_tempo()
@@ -297,7 +371,9 @@ else:
 
                 # 4. Map
                 st.write("**4/4** Mapping to fretboard…")
-                mapper = FretboardMapper(max_fret=max_fret, one_string_mode=one_string_mode)
+                mapper = FretboardMapper(
+                    max_fret_limit=max_fret, one_string_mode=one_string_mode
+                )
                 tab_data = (
                     mapper.map_chords(quantized) if use_basic_pitch else mapper.map(quantized)
                 )
@@ -315,11 +391,15 @@ else:
                 renderer = TabRenderer(notes_per_line=notes_per_line)
                 detector_label = "basic-pitch" if use_basic_pitch else "pyin"
                 tab_text = (
-                    renderer.render_chords(tab_data, tempo=tempo, max_fret=max_fret,
-                                           one_string_mode=one_string_mode)
+                    renderer.render_chords(
+                        tab_data, tempo=tempo, max_fret=max_fret,
+                        one_string_mode=one_string_mode, duration=duration,
+                    )
                     if use_basic_pitch
-                    else renderer.render(tab_data, tempo=tempo, max_fret=max_fret,
-                                         one_string_mode=one_string_mode)
+                    else renderer.render(
+                        tab_data, tempo=tempo, max_fret=max_fret,
+                        one_string_mode=one_string_mode, duration=duration,
+                    )
                 )
 
                 # Auto-save

@@ -1,0 +1,16 @@
+# AutoTabber — Full local development dependencies (Python 3.12)
+#
+# Use this file for local development where basic-pitch + tensorflow work:
+#     pip install -r requirements-local.txt
+#
+# The main requirements.txt is used by Streamlit Cloud and omits basic-pitch
+# because tensorflow has no wheels for Python >=3.13.
+
+-r requirements.txt
+
+# Neural polyphonic pitch detection (Spotify Basic-pitch)
+# basic-pitch requires tensorflow internally; onnxruntime lets our code
+# use the lighter ONNX model backend instead of the full TF runtime.
+basic-pitch>=0.3.0
+pretty-midi>=0.2.9
+onnxruntime>=1.16.0

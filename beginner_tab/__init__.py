@@ -23,7 +23,12 @@ into an ASCII guitar tablature suitable for beginners:
 """
 
 from .audio_loader import AudioLoader, AudioLoadError
-from .pitch_tracker import PitchTracker, BasicPitchTracker, PitchDetectionError
+from .pitch_tracker import (
+    PitchTracker,
+    BasicPitchTracker,
+    PitchDetectionError,
+    extract_dominant_melody,
+)
 from .tab_simplifier import TabSimplifier
 from .fretboard_mapper import FretboardMapper
 from .tab_renderer import TabRenderer
@@ -78,6 +83,7 @@ __all__ = [
     "PitchTracker",
     "BasicPitchTracker",
     "PitchDetectionError",
+    "extract_dominant_melody",
     "TabSimplifier",
     "FretboardMapper",
     "TabRenderer",

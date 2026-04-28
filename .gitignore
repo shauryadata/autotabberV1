@@ -1,0 +1,7 @@
+venv/
+__pycache__/
+*.pyc
+tabs.db
+AutoTabber_Milestone_Submission.docx
+.idea/
+.DS_Store

@@ -1,0 +1,23 @@
+# AutoTabber — Streamlit Cloud deployment (pYIN detector)
+#
+# basic-pitch is NOT included here because it hard-depends on
+# tensorflow <2.15.1, which has no compatible wheels on Streamlit Cloud.
+# The app auto-detects this and offers the pYIN detector instead.
+#
+# For local development with both detectors (pYIN + Basic-pitch):
+#     pip install -r requirements-local.txt
+
+# UI
+streamlit>=1.32.0
+
+# Core audio / DSP
+librosa>=0.10.1
+soundfile>=0.12.1
+numpy>=1.24.0
+scipy>=1.11.0
+
+# Non-WAV format conversion (requires ffmpeg — installed via packages.txt)
+pydub>=0.25.1
+
+# Testing
+pytest>=7.4.0
