@@ -14,3 +14,21 @@
 basic-pitch>=0.3.0
 pretty-midi>=0.2.9
 onnxruntime>=1.16.0
+
+# Optional source separation (Spotify Demucs).  Used by
+# beginner_tab.source_separator to isolate a single stem (vocals / drums
+# / bass / other) before pitch tracking.  Pulls in PyTorch (~600 MB) and
+# downloads ~80 MB of model weights on first use, so it is intentionally
+# excluded from requirements.txt / Streamlit Cloud — the cloud build
+# silently disables the source-separation UI when this import fails.
+demucs>=4.0.0
+# Torch / torchaudio / torchvision pin: demucs declares an unpinned
+# `torch` dep, so pip would otherwise grab torch>=2.6 which requires
+# numpy>=2.0 at runtime.  Our other deps (tensorflow-macos via
+# basic-pitch, etc.) are still on numpy 1.x, so torch.from_numpy
+# crashes with "expected np.ndarray (got numpy.ndarray)".  Pinning to
+# the 2.2.x line keeps every consumer happy.  When AutoTabber moves to
+# numpy 2, drop these pins.
+torch>=2.2,<2.6
+torchaudio>=2.2,<2.6
+torchvision>=0.17,<0.21

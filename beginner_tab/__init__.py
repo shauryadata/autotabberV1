@@ -76,6 +76,21 @@ BASIC_PITCH_AVAILABLE: bool
 BASIC_PITCH_UNAVAILABLE_REASON: str
 BASIC_PITCH_AVAILABLE, BASIC_PITCH_UNAVAILABLE_REASON = _probe_basic_pitch()
 
+
+# ---------------------------------------------------------------------------
+# Conditional export of the optional Demucs source-separation stage.
+# Demucs is only listed in requirements-local.txt (it pulls in PyTorch and
+# downloads ~80 MB of model weights), so on Streamlit Cloud — and on any
+# environment without it — the import below fails and the symbols simply
+# aren't exposed.  Callers that want to use the feature should guard with
+# ``SOURCE_SEPARATOR_AVAILABLE`` before constructing :class:`SourceSeparator`.
+# ---------------------------------------------------------------------------
+try:
+    from .source_separator import SourceSeparator, SourceSeparationError
+    SOURCE_SEPARATOR_AVAILABLE: bool = True
+except ImportError:
+    SOURCE_SEPARATOR_AVAILABLE = False
+
 # Symbols available when a consumer does ``from beginner_tab import *``
 __all__ = [
     "AudioLoader",
@@ -91,5 +106,12 @@ __all__ = [
     "TabStorageError",
     "BASIC_PITCH_AVAILABLE",
     "BASIC_PITCH_UNAVAILABLE_REASON",
+    "SOURCE_SEPARATOR_AVAILABLE",
 ]
+# SourceSeparator / SourceSeparationError are appended dynamically below
+# so they only appear in __all__ when the optional demucs dependency is
+# actually present — keeps `from beginner_tab import *` clean on systems
+# that can't / don't install demucs.
+if SOURCE_SEPARATOR_AVAILABLE:
+    __all__.extend(["SourceSeparator", "SourceSeparationError"])
 __version__ = "0.2.0"
