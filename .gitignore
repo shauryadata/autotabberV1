@@ -1,7 +1,30 @@
+# Python
 venv/
+.venv/
 __pycache__/
 *.pyc
-tabs.db
+*.egg-info/
+
+# AutoTabber runtime artefacts
+tabs.db                              # local SQLite tab history
 AutoTabber_Milestone_Submission.docx
+
+# Editor / OS
 .idea/
+.vscode/
 .DS_Store
+
+# Demucs / PyTorch model cache
+# ----------------------------------------------------------------------
+# The htdemucs weights (~80 MB) are downloaded by torch.hub on first
+# use of the source-separation feature.  By default they live in the
+# user's home directory at ~/.cache/torch/hub/checkpoints/, which is
+# already outside this repo and therefore not at risk of being
+# committed.  The patterns below are defensive — they catch the case
+# where a developer points TORCH_HOME at the repo (e.g. for a CI box)
+# and accidentally drops the multi-hundred-MB weights into the tree.
+~/.cache/torch                       # documented per project policy (no-op
+                                     # in standard gitignore — see note above)
+.cache/torch/                        # catches TORCH_HOME=./.cache
+torch_cache/                         # catches TORCH_HOME=./torch_cache
+**/checkpoints/*.th                  # raw demucs model weights

@@ -14,6 +14,7 @@ Supports both single-note melodies and chords.
 | Audio input | MP3, WAV, M4A |
 | pYIN detector | Monophonic pitch detection via librosa (single notes) |
 | Basic-pitch detector | Polyphonic AI pitch detection via Spotify's neural network (chords) |
+| Source Separation | Optional Demucs preprocessing — isolates one stem (vocals/drums/bass/other) before pitch detection for dramatically cleaner tabs (local only) |
 | Monophonic Melody Mode | Collapses near-simultaneous detections into a clean single-line melody |
 | Note Filtering | User-tunable amplitude and minimum-duration sliders to reject noise / artifacts |
 | Difficulty Mode | Beginner (max fret 5) · Intermediate (max fret 7) · Advanced (max fret 12) |
@@ -54,22 +55,27 @@ cd autotabberv1
 # 2. Create and activate a virtual environment
 python3 -m venv venv
 source venv/bin/activate   # Windows: venv\Scripts\activate
+```
 
-# 3. Install dependencies (includes Basic-pitch + TensorFlow)
-pip install -r requirements-local.txt
+**3. Install dependencies — pick the install that matches how you'll use AutoTabber:**
 
+| Install | What you get | Command |
+|---|---|---|
+| **Cloud-style / lightweight** | pYIN detector only · no PyTorch · no Demucs · ~50 MB of dependencies — matches the Streamlit Cloud build exactly | `pip install -r requirements.txt` |
+| **Full local** | Everything above **plus** Basic-pitch (polyphonic AI) **and** Demucs source separation · pulls in PyTorch with a pinned `torch>=2.2,<2.6` · ~1 GB of dependencies | `pip install -r requirements-local.txt` |
+
+```bash
 # 4. Launch the app
 streamlit run app.py
 ```
 
 The browser opens automatically at `http://localhost:8501`.
 
-> **Detector availability:** Basic-pitch depends on TensorFlow, which has no
-> wheels for the Python version Streamlit Cloud runs. As a result the cloud
-> deployment uses **only the pYIN detector** (single-note melodies). When you
-> run AutoTabber **locally** with `requirements-local.txt`, **both detectors**
-> are available — Basic-pitch is selected by default for polyphonic / chord
-> recordings.
+> **What's available where:** Basic-pitch needs TensorFlow and Demucs needs
+> PyTorch — neither has wheels that fit the Streamlit Cloud Python build, so
+> the cloud deployment runs **pYIN only with no source separation**. The
+> full local install enables every feature: Basic-pitch chord detection
+> (selected by default) and the optional Demucs preprocessing stage.
 
 ---
 
@@ -149,6 +155,46 @@ prep will dramatically improve the resulting tab:
 - **Leave Monophonic Melody Mode on for melody work.** It guarantees one
   note per beat. Turn it off only when you specifically want Basic-pitch to
   render chord stacks.
+- **For best results on full-band recordings, enable Source Separation**
+  and choose the stem that matches your target instrument — *Other* for
+  guitar / keys, *Vocals* for the sung melody. The 30–90 s extra
+  processing typically removes more transcription error than any amount
+  of slider tuning. Local installs only — see the next section.
+
+---
+
+## Source Separation Mode (Local Only)
+
+When the upload is a full-band recording, the cleanest path to a usable
+tab is to first **isolate the instrument you actually care about** and
+only then run pitch detection on it. AutoTabber wires up Spotify's
+[Demucs](https://github.com/facebookresearch/demucs) htdemucs model
+behind a single sidebar checkbox — when enabled, every Generate Tab
+click first runs the audio through Demucs and feeds only the chosen
+stem into the rest of the pipeline. Vocals, drums, and bass disappear
+from the input that the pitch tracker actually sees, which removes the
+single largest source of transcription noise on real-world recordings.
+
+**Pick the stem that matches what you want to play:**
+
+| Stem | When to pick it |
+|---|---|
+| **Other (guitar/keys)** — *recommended for guitar tabs* | Every guitar, piano, synth, or non-percussive instrument that isn't a lead vocal. This is the right choice for ~90 % of guitar transcription work. |
+| **Vocals (sing the melody)** | When you want to learn the sung lead line on guitar — useful for melody studies and sing-along tabs. |
+| **Bass** | Bass-line transcription. Pair with Beginner Difficulty Mode and the low strings. |
+| **Drums** *(not recommended)* | Drums are not pitched, so AutoTabber will produce noise. Listed for completeness; almost never useful. |
+
+**Cost:** Source separation adds **30–90 seconds per song** on CPU
+(faster with a GPU). The Demucs model also downloads ~80 MB of weights
+on first use — you'll see a progress bar in the terminal, then the
+weights are cached for the rest of your sessions.
+
+**Availability:** Source separation requires the full local install
+(`pip install -r requirements-local.txt`), which pulls in PyTorch and
+Demucs. **The Streamlit Cloud deployment does not include these
+dependencies** — the sidebar will show an info message explaining
+that the cloud build runs on the full mix only. Run AutoTabber locally
+to use this feature.
 
 ---
 
@@ -162,19 +208,23 @@ AutoTabber/
 ├── packages.txt                    # System packages for Streamlit Cloud
 ├── README.md
 ├── beginner_tab/                   # Core package
-│   ├── __init__.py                 # Package init with Basic-pitch availability probe
+│   ├── __init__.py                 # Package init + Basic-pitch / Demucs probes
 │   ├── audio_loader.py             # AudioLoader class
 │   ├── pitch_tracker.py            # PitchTracker (pYIN) and BasicPitchTracker classes
 │   ├── tab_simplifier.py           # TabSimplifier class
 │   ├── fretboard_mapper.py         # FretboardMapper class
 │   ├── tab_renderer.py             # TabRenderer class
-│   └── tab_storage.py              # TabStorage class (SQLite)
+│   ├── tab_storage.py              # TabStorage class (SQLite, with stem column)
+│   └── source_separator.py         # SourceSeparator (Demucs, optional, local-only)
+├── scripts/
+│   └── verify_source_separator.py  # Standalone smoke-test for the separator
 └── tests/
     ├── __init__.py
     ├── test_frestboard_mapper.py     # FretboardMapper scoring & placement
     ├── test_tab_renderer.py          # ASCII rendering, bar lines, widths
     ├── test_tab_simplifier.py        # Quantisation & range simplification
-    └── test_chord_pipeline.py        # Chord pipeline + cross-pipeline tests
+    ├── test_chord_pipeline.py        # Chord pipeline + cross-pipeline tests
+    └── test_source_separator.py      # Demucs separator (skips when unavailable)
 ```
 
 ---
