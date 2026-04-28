@@ -26,6 +26,7 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
+import soundfile as sf
 import streamlit as st
 
 # Import all pipeline classes and exceptions from the beginner_tab package
@@ -35,7 +36,15 @@ from beginner_tab import (
     TabSimplifier, FretboardMapper, TabRenderer,
     TabStorage, TabStorageError,
     BASIC_PITCH_AVAILABLE, BASIC_PITCH_UNAVAILABLE_REASON,
+    SOURCE_SEPARATOR_AVAILABLE,
 )
+
+# SourceSeparator + SourceSeparationError are only exported by the package
+# when the optional ``demucs`` dependency is installed (Streamlit Cloud
+# deliberately does not install it).  Guard the import so the app still
+# loads on cloud deployments.
+if SOURCE_SEPARATOR_AVAILABLE:
+    from beginner_tab import SourceSeparator, SourceSeparationError
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -61,8 +70,103 @@ def get_storage() -> TabStorage:
 # Singleton database connection shared across all reruns
 storage = get_storage()
 
+
+# ── Optional source separator ────────────────────────────────────────────────
+# The Demucs model takes ~30 s to load on first use, so we cache it across
+# reruns via Streamlit's resource cache.  Constructing the SourceSeparator
+# itself is cheap — the model load happens lazily on the first separate()
+# call inside the cached instance.
+@st.cache_resource
+def get_separator():
+    """Return the singleton :class:`SourceSeparator` for this Streamlit session.
+
+    The model itself is not loaded until the first :meth:`separate` call;
+    construction stays cheap so this stays safe to invoke even when the
+    user never enables the source-separation checkbox.
+
+    Returns:
+        SourceSeparator: A ready-to-use separator instance.
+    """
+    return SourceSeparator()
+
+
+# Cache the availability flag in ``session_state`` per the spec — keeps
+# the truth value stable for the lifetime of this user's session even if
+# the underlying import status were ever to change.
+if "source_separator_available" not in st.session_state:
+    st.session_state.source_separator_available = SOURCE_SEPARATOR_AVAILABLE
+
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 st.sidebar.title("Settings")
+
+# ── 0) Source Separation ────────────────────────────────────────────────────
+# Optional Demucs preprocessing.  When enabled, the uploaded audio is run
+# through the htdemucs neural network and only the user's chosen stem
+# (vocals / drums / bass / other) is fed into the rest of the pipeline.
+# This is the single most effective way to improve tab quality on full
+# mixes, but it adds ~30-90 s per song and only works locally (the cloud
+# build excludes demucs to keep the image small).
+st.sidebar.subheader("Source Separation")
+
+# Maps the user-facing select_slider label to the internal stem name
+# expected by SourceSeparator.separate().  The parenthetical hints in the
+# labels are stripped before lookup so future label tweaks don't break
+# the integration — see :func:`_label_to_stem` below.
+_STEM_OPTIONS: list[str] = [
+    "Vocals (sing the melody)",
+    "Other (guitar/keys)",
+    "Bass",
+    "Drums (not recommended)",
+]
+
+
+def _label_to_stem(label: str) -> str:
+    """Strip the parenthetical hint from a stem-selector label.
+
+    ``"Vocals (sing the melody)"`` → ``"vocals"``,
+    ``"Other (guitar/keys)"``      → ``"other"``,
+    ``"Bass"``                     → ``"bass"``.
+    """
+    return label.split(" (", 1)[0].strip().lower()
+
+
+use_source_separation: bool = False
+selected_stem: str = "full mix"   # Stored on every tab for provenance.
+
+if st.session_state.source_separator_available:
+    use_source_separation = st.sidebar.checkbox(
+        "Enable Source Separation (recommended for full songs)",
+        value=False,
+        help=(
+            "Run Demucs on the upload first and feed only the chosen "
+            "instrument stem into pitch detection.  Adds 30-90 s per "
+            "song but dramatically improves tab quality."
+        ),
+    )
+    if use_source_separation:
+        stem_label: str = st.sidebar.select_slider(
+            "Stem to transcribe",
+            options=_STEM_OPTIONS,
+            value="Other (guitar/keys)",
+            help=(
+                "Pick the stem most likely to contain the part you want "
+                "to play.  Guitar usually lives in 'Other'; vocal melodies "
+                "are easier to follow from the 'Vocals' stem."
+            ),
+        )
+        selected_stem = _label_to_stem(stem_label)
+        st.sidebar.info(
+            "Source separation takes 30-90 seconds extra per song but "
+            "dramatically improves tab quality."
+        )
+else:
+    st.sidebar.info(
+        "Source Separation requires running locally with "
+        "requirements-local.txt installed.  Currently using full mix "
+        "for pitch detection."
+    )
+
+st.sidebar.divider()
 
 # 1) Detector choice — radio button
 st.sidebar.subheader("1. Pitch Detector")
@@ -280,16 +384,56 @@ else:
         # Save uploaded bytes to a temp file so AudioLoader can read it by path
         suffix = Path(uploaded_file.name).suffix.lower()
         tmp_fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+        # When source separation runs, we write the chosen stem to a second
+        # temp WAV and re-point the pipeline at it.  Tracked separately so
+        # the ``finally`` block can clean both up regardless of failure.
+        sep_tmp_path: str | None = None
         try:
             with os.fdopen(tmp_fd, "wb") as fh:
                 fh.write(uploaded_file.getvalue())
+
+            # ── Optional: Demucs source separation ──────────────────────
+            # Runs BEFORE pitch detection so the rest of the pipeline
+            # transparently consumes a single stem instead of the full
+            # mix.  We dedicate its own st.status block because the wait
+            # is long (30-90 s) and users need clear feedback.
+            active_audio_path: str = tmp_path
+            if use_source_separation:
+                with st.status(
+                    "Separating audio sources... (30-90 seconds, please wait)",
+                    expanded=True,
+                ) as sep_status:
+                    try:
+                        separator = get_separator()
+                        sep_audio, sep_sr = separator.separate(
+                            tmp_path, target_stem=selected_stem,
+                        )
+                    except SourceSeparationError as exc:
+                        sep_status.update(
+                            label="Source separation failed",
+                            state="error",
+                        )
+                        st.error(f"Source separation failed: {exc}")
+                        st.stop()
+
+                    # Persist the chosen stem to a fresh temp WAV so the
+                    # existing AudioLoader + pitch trackers can consume
+                    # it through the normal file-path code path.
+                    sep_fd, sep_tmp_path = tempfile.mkstemp(suffix=".wav")
+                    os.close(sep_fd)
+                    sf.write(sep_tmp_path, sep_audio, sep_sr)
+                    active_audio_path = sep_tmp_path
+                    sep_status.update(
+                        label=f"Source separation complete - using {selected_stem} track",
+                        state="complete",
+                    )
 
             with st.status("Processing…", expanded=True) as status:
 
                 # 1. Load
                 st.write("**1/4** Loading audio…")
                 try:
-                    audio, sr = AudioLoader(tmp_path).load()
+                    audio, sr = AudioLoader(active_audio_path).load()
                 except AudioLoadError as exc:
                     st.error(f"Audio load failed: {exc}")
                     st.stop()
@@ -390,15 +534,20 @@ else:
                 # Render
                 renderer = TabRenderer(notes_per_line=notes_per_line)
                 detector_label = "basic-pitch" if use_basic_pitch else "pyin"
+                # ``selected_stem`` is "full mix" when separation is off
+                # and one of {vocals, other, bass, drums} when it is on,
+                # so we can pass it through unconditionally.
                 tab_text = (
                     renderer.render_chords(
                         tab_data, tempo=tempo, max_fret=max_fret,
                         one_string_mode=one_string_mode, duration=duration,
+                        stem=selected_stem,
                     )
                     if use_basic_pitch
                     else renderer.render(
                         tab_data, tempo=tempo, max_fret=max_fret,
                         one_string_mode=one_string_mode, duration=duration,
+                        stem=selected_stem,
                     )
                 )
 
@@ -410,6 +559,7 @@ else:
                         detector=detector_label, tempo=tempo,
                         max_fret=max_fret, one_string=one_string_mode,
                         note_count=len(tab_data),
+                        stem=selected_stem,
                     )
                 except TabStorageError as exc:
                     st.warning(f"Tab generated but could not be saved to history: {exc}")
@@ -435,6 +585,7 @@ else:
                 f"Tempo       : {tempo:.0f} BPM",
                 f"Max fret    : {max_fret}",
                 f"One-string  : {'yes' if one_string_mode else 'no'}",
+                f"Source      : {selected_stem}",
                 "-" * 44, "",
             ]
             # 6) Download button
@@ -451,8 +602,12 @@ else:
             with st.expander("Traceback"):
                 st.exception(exc)
         finally:
+            # Clean up the upload temp file …
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
+            # … and, when source separation ran, the separated stem WAV.
+            if sep_tmp_path and os.path.exists(sep_tmp_path):
+                os.unlink(sep_tmp_path)
 
 # ── Tab History ───────────────────────────────────────────────────────────────
 st.divider()

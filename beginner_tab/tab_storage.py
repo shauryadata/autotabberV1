@@ -47,6 +47,11 @@ class TabStorage:
     * ``max_fret``    — max-fret setting used.
     * ``one_string``  — whether one-string mode was active.
     * ``note_count``  — number of note/chord events in the tab.
+    * ``stem``        — Demucs stem the tab was generated from
+      (``"vocals"``, ``"drums"``, ``"bass"``, ``"other"``), or
+      ``"full mix"`` when source separation was off / unavailable.
+      Added in v0.3 and back-filled to ``"full mix"`` for any rows
+      created before the column existed.
     * ``tab_text``    — the full ASCII tab string.
     * ``created_at``  — UTC timestamp string.
 
@@ -67,6 +72,11 @@ class TabStorage:
         db.delete_tab(tid)
     """
 
+    # Default value for the ``stem`` column.  Stored on every row so the
+    # history UI can always show provenance, even for tabs generated
+    # before source separation existed.
+    DEFAULT_STEM: str = "full mix"
+
     _CREATE_TABLE = """
         CREATE TABLE IF NOT EXISTS tabs (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,6 +87,7 @@ class TabStorage:
             max_fret      INTEGER,
             one_string    INTEGER DEFAULT 0,
             note_count    INTEGER DEFAULT 0,
+            stem          TEXT    NOT NULL DEFAULT 'full mix',
             tab_text      TEXT    NOT NULL,
             created_at    TEXT    NOT NULL
         )
@@ -107,6 +118,7 @@ class TabStorage:
         max_fret: int | None = None,
         one_string: bool = False,
         note_count: int = 0,
+        stem: str | None = None,
     ) -> int:
         """Save a generated tab to the database.
 
@@ -119,17 +131,26 @@ class TabStorage:
             max_fret: Max-fret setting used.
             one_string: Whether one-string mode was active.
             note_count: Number of note / chord events.
+            stem: Source-separation stem the tab was generated from
+                (``"vocals"`` / ``"drums"`` / ``"bass"`` / ``"other"``)
+                or ``None`` / unset for tabs generated from the full
+                mix.  Stored as :attr:`DEFAULT_STEM` (``"full mix"``)
+                when ``None`` so the column is queryable without
+                NULL-handling downstream.
 
         Returns:
             The ``id`` of the newly inserted row.
         """
         created_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        # Coalesce ``None`` to the default so reads never have to special-case
+        # missing-stem rows.
+        stem_value = stem if stem else self.DEFAULT_STEM
         with self._connect() as conn:
             cursor = conn.execute(
                 """INSERT INTO tabs
                    (filename, reference_url, detector, tempo, max_fret,
-                    one_string, note_count, tab_text, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    one_string, note_count, stem, tab_text, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     filename,
                     reference_url,
@@ -138,6 +159,7 @@ class TabStorage:
                     max_fret,
                     int(one_string),
                     note_count,
+                    stem_value,
                     tab_text,
                     created_at,
                 ),
@@ -155,7 +177,7 @@ class TabStorage:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 """SELECT id, filename, reference_url, detector, tempo,
-                          max_fret, one_string, note_count, created_at
+                          max_fret, one_string, note_count, stem, created_at
                    FROM tabs
                    ORDER BY id DESC"""
             ).fetchall()
@@ -196,13 +218,29 @@ class TabStorage:
     # ------------------------------------------------------------------
 
     def _init_db(self) -> None:
-        """Create the ``tabs`` table if it does not already exist.
+        """Create the ``tabs`` table if it does not already exist, then
+        run any column-level migrations needed for older databases.
 
         Called automatically during ``__init__`` so the database is
         ready to use immediately after construction.
         """
         with self._connect() as conn:
             conn.execute(self._CREATE_TABLE)
+            # ---- Migration: add the ``stem`` column on pre-v0.3 DBs ----
+            # SQLite's ``ALTER TABLE ADD COLUMN ... DEFAULT '...'`` back-fills
+            # every existing row with the default value, so users who upgrade
+            # from an older AutoTabber version see "full mix" on their old
+            # tabs without any data loss.  We probe ``PRAGMA table_info``
+            # rather than catching the duplicate-column OperationalError
+            # because the latter would also swallow real schema errors.
+            existing = {
+                row[1] for row in conn.execute("PRAGMA table_info(tabs)").fetchall()
+            }
+            if "stem" not in existing:
+                conn.execute(
+                    f"ALTER TABLE tabs ADD COLUMN stem TEXT NOT NULL "
+                    f"DEFAULT '{self.DEFAULT_STEM}'"
+                )
 
     def _connect(self) -> sqlite3.Connection:
         """Open a connection to the SQLite database file.

@@ -159,6 +159,7 @@ class TabRenderer:
         max_fret: int | None = None,
         one_string_mode: bool = False,
         duration: float | None = None,
+        stem: str = "full mix",
     ) -> str:
         """Render monophonic tab notes as ASCII guitar tab.
 
@@ -169,6 +170,9 @@ class TabRenderer:
             one_string_mode: Whether one-string mode was active.
             duration: Optional song duration in seconds.  Falls back to
                 the timestamp of the last note when not supplied.
+            stem: Source-separation stem name shown in the settings line
+                (e.g. ``"vocals"``, ``"other"``).  Defaults to
+                ``"full mix"`` when no separation was applied.
 
         Returns:
             Multi-line ASCII string.
@@ -194,6 +198,7 @@ class TabRenderer:
         return self._render_body(
             columns, note_names, tempo, max_fret, one_string_mode,
             polyphonic=False, note_count=note_count, duration=duration,
+            stem=stem,
         )
 
     def _build_mono_columns(self, tab_notes: list[TabNote]) -> list[_AnyCol]:
@@ -253,6 +258,7 @@ class TabRenderer:
         max_fret: int | None = None,
         one_string_mode: bool = False,
         duration: float | None = None,
+        stem: str = "full mix",
     ) -> str:
         """Render polyphonic chord notes as ASCII guitar tab.
 
@@ -267,6 +273,9 @@ class TabRenderer:
             one_string_mode: Whether one-string mode was active.
             duration: Optional song duration in seconds.  Falls back to
                 the last chord's timestamp when not supplied.
+            stem: Source-separation stem name shown in the settings line
+                (e.g. ``"vocals"``, ``"other"``).  Defaults to
+                ``"full mix"`` when no separation was applied.
 
         Returns:
             Multi-line ASCII string.
@@ -298,6 +307,7 @@ class TabRenderer:
         return self._render_body(
             columns, note_names, tempo, max_fret, one_string_mode,
             polyphonic=True, note_count=note_count, duration=duration,
+            stem=stem,
         )
 
     def _build_chord_columns(
@@ -336,6 +346,7 @@ class TabRenderer:
         polyphonic: bool,
         note_count: int | None = None,
         duration: float | None = None,
+        stem: str = "full mix",
     ) -> str:
         """Build the complete ASCII tab string from column descriptors.
 
@@ -391,7 +402,7 @@ class TabRenderer:
         stats.append(f"Duration: {duration if duration is not None else 0.0:.1f}s")
         parts.append("  " + "  |  ".join(stats))
 
-        # Settings line — tuning + any optional flags
+        # Settings line — tuning + any optional flags + provenance
         settings: list[str] = ["Standard tuning (EADGBE)"]
         if max_fret is not None:
             settings.append(f"Max fret: {max_fret}")
@@ -399,6 +410,10 @@ class TabRenderer:
             settings.append("One-string mode")
         if polyphonic:
             settings.append("Polyphonic (Basic-pitch)")
+        # ``stem`` is always present (defaults to "full mix") so every
+        # rendered tab shows its provenance.  When source separation is
+        # used the value is the chosen stem name, e.g. "vocals".
+        settings.append(f"Source: {stem}")
         parts.append("  " + " | ".join(settings))
         parts.append("")
 
