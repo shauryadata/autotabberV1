@@ -3,8 +3,7 @@
 Convert audio recordings into beginner-friendly ASCII guitar tablature.
 Supports both single-note melodies and chords.
 
-**Live demo:** [autotabber.streamlit.app](https://autotabber.streamlit.app)
-
+**Live demo:** [Click Here](https://huggingface.co/spaces/shauryadata/autotabberv1)
 ---
 
 ## Features
