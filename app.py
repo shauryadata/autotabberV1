@@ -1,6 +1,6 @@
 # ==========================================================================
 # File:        app.py
-# Authors:     Daniel Ahn, Shauryaditya Singh
+# Author:      Shauryaditya Singh
 # Date:        2026-04-06
 # Description: Streamlit web application frontend for AutoTabber.  Provides
 #              an interactive GUI where users upload audio files, choose a

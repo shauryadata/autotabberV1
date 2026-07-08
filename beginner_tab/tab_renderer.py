@@ -1,6 +1,6 @@
 # ==========================================================================
 # File:        tab_renderer.py
-# Authors:     Daniel Ahn, Shauryaditya Singh
+# Author:      Shauryaditya Singh
 # Date:        2026-04-06
 # Description: Renders mapped guitar tab notes as human-readable ASCII
 #              tablature.  Supports monophonic (one note per column) and

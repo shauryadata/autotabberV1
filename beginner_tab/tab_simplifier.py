@@ -1,6 +1,6 @@
 # ==========================================================================
 # File:        tab_simplifier.py
-# Authors:     Daniel Ahn, Shauryaditya Singh
+# Author:      Shauryaditya Singh
 # Date:        2026-04-06
 # Description: Quantises raw pitch events from the tracker onto a musical
 #              beat grid (quarter / 8th / 16th notes) and collapses sustained

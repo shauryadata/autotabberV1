@@ -1,6 +1,6 @@
 # ==========================================================================
 # File:        tab_storage.py
-# Authors:     Daniel Ahn, Shauryaditya Singh
+# Author:      Shauryaditya Singh
 # Date:        2026-04-06
 # Description: Persistent storage layer for generated guitar tabs using
 #              Python's built-in sqlite3 module.  Stores tab text along

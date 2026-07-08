@@ -1,6 +1,6 @@
 # ==========================================================================
 # File:        __init__.py
-# Authors:     Daniel Ahn, Shauryaditya Singh
+# Author:      Shauryaditya Singh
 # Date:        2026-04-06
 # Description: Package initializer for beginner_tab. Re-exports every public
 #              class and exception from the sub-modules so that callers can

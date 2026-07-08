@@ -1,6 +1,6 @@
 # ==========================================================================
 # File:        fretboard_mapper.py
-# Authors:     Daniel Ahn, Shauryaditya Singh
+# Author:      Shauryaditya Singh
 # Date:        2026-04-06
 # Description: Maps MIDI note numbers to physical guitar string/fret
 #              positions using a beginner-friendly weighted scoring system.

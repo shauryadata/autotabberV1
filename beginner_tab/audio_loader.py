@@ -1,6 +1,6 @@
 # ==========================================================================
 # File:        audio_loader.py
-# Authors:     Daniel Ahn, Shauryaditya Singh
+# Author:      Shauryaditya Singh
 # Date:        2026-04-06
 # Description: Loads audio files (MP3, WAV, M4A, OGG, FLAC), converts
 #              non-WAV formats to a temporary WAV via pydub + ffmpeg,

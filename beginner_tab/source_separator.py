@@ -1,6 +1,6 @@
 # ==========================================================================
 # File:        source_separator.py
-# Authors:     Daniel Ahn, Shauryaditya Singh
+# Author:      Shauryaditya Singh
 # Date:        2026-04-27
 # Description: Optional preprocessing stage that runs Spotify Demucs (the
 #              4-stem htdemucs model by default) on an input file and

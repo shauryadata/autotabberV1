@@ -1,6 +1,6 @@
 # ==========================================================================
 # File:        pitch_tracker.py
-# Authors:     Daniel Ahn, Shauryaditya Singh
+# Author:      Shauryaditya Singh
 # Date:        2026-04-06
 # Description: Provides two pitch-detection backends that convert raw audio
 #              into timestamped MIDI note events.  PitchTracker uses the
